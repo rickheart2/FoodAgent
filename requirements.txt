@@ -1,0 +1,16 @@
+# A2A Agent Framework
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+
+# HTTP Client
+httpx>=0.24.0
+
+# 阿里云Qwen (DashScope OpenAI兼容接口)
+openai>=1.0.0
+
+# 异步支持
+anyio>=3.7.0
+
+# 环境变量管理
+python-dotenv>=1.0.0
