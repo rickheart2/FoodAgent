@@ -1,0 +1,64 @@
+{
+  "protocolVersion": "1.0",
+  "name": "Food Delivery Assistant Agent",
+  "description": "智能外卖/美食助手，提供个性化餐厅推荐、搜索、详情查询服务，集成高德地图真实数据",
+  "version": "2.0.0",
+  "provider": {
+    "url": "http://localhost:8080/a2a",
+    "organization": "Food Agent Demo"
+  },
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "recommend",
+      "name": "推荐餐厅",
+      "description": "根据口味、预算、菜系等条件推荐餐厅。支持任意条件组合：仅口味、仅预算、仅菜系、或多条件组合",
+      "tags": ["food", "recommendation"],
+      "inputModes": ["text"],
+      "outputModes": ["text"],
+      "examples": [
+        "推荐清淡口味、50元以内的餐厅",
+        "想吃川菜，预算80元",
+        "推荐辣味餐厅",
+        "30元以内有什么推荐",
+        "看看附近的火锅店"
+      ]
+    },
+    {
+      "id": "search",
+      "name": "搜索餐厅",
+      "description": "根据关键词搜索特定餐厅",
+      "tags": ["food", "search"],
+      "inputModes": ["text"],
+      "outputModes": ["text"],
+      "examples": [
+        "搜索海底捞",
+        "找附近的肯德基",
+        "星巴克在哪"
+      ]
+    },
+    {
+      "id": "detail",
+      "name": "餐厅详情",
+      "description": "获取指定餐厅的详细信息（地址、电话、营业时间、人均消费等）",
+      "tags": ["food", "detail"],
+      "inputModes": ["text"],
+      "outputModes": ["text"],
+      "examples": [
+        "海底捞的详细信息",
+        "这家店的营业时间和电话"
+      ]
+    }
+  ],
+  "supportedInterfaces": [
+    {
+      "url": "http://localhost:8080/a2a",
+      "protocolBinding": "http"
+    }
+  ]
+}
