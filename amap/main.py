@@ -40,7 +40,7 @@ class FoodAgentSkills:
             lines.append(f"   电话: {r.get('tel')}")
         return "\n".join(lines)
 
-    def _format_restaurant_list(self, restaurants: list, limit: int = 5) -> str:
+    def _format_restaurant_list(self, restaurants: list, limit: int = 10) -> str:
         """格式化餐厅列表"""
         result = []
         for i, r in enumerate(restaurants[:limit], 1):

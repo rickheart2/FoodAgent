@@ -4,7 +4,7 @@
   "description": "智能外卖/美食助手，基于高德地图API提供餐厅推荐、搜索、详情查询服务",
   "version": "2.0.0",
   "provider": {
-    "url": "http://localhost:8080/a2a",
+    "url": "http://47.97.74.119:8080/a2a",
     "organization": "Food Agent Demo"
   },
   "capabilities": {
@@ -57,7 +57,7 @@
   ],
   "supportedInterfaces": [
     {
-      "url": "http://localhost:8080/a2a",
+      "url": "http://47.97.74.119:8080/a2a",
       "protocolBinding": "http"
     }
   ]

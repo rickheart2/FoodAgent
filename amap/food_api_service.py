@@ -15,27 +15,7 @@ class FoodAPIService:
         self.api_key = config.AMAP_API_KEY
         self.base_url = "https://restapi.amap.com/v5/place"
 
-        # 餐饮分类代码 (高德POI分类)
-        self.food_types = {
-            "中餐": "050100",
-            "川菜": "050116",
-            "粤菜": "050117",
-            "湘菜": "050119",
-            "东北菜": "050105",
-            "火锅": "050300",
-            "海鲜": "050115",
-            "西餐": "050200",
-            "日料": "050201",
-            "韩餐": "050202",
-            "快餐": "050301",
-            "咖啡厅": "050500",
-            "茶馆": "050502",
-            "甜点": "050400",
-            "小吃": "050303",
-            "烧烤": "050304",
-        }
-
-        # 口味关键词映射
+        # 口味→关键词映射
         self.taste_keywords = {
             "清淡": ["粤菜", "日料", "素食"],
             "辣": ["川菜", "湘菜", "火锅"],
@@ -46,7 +26,6 @@ class FoodAPIService:
         self,
         location: str,
         keywords: Optional[str] = None,
-        types: Optional[str] = None,
         radius: int = 3000,
         page: int = 1,
         page_size: int = 20
@@ -57,7 +36,6 @@ class FoodAPIService:
         Args:
             location: 中心点坐标，格式：经度,纬度
             keywords: 搜索关键词
-            types: POI类型代码
             radius: 搜索半径(米)
             page: 页码，从1开始
             page_size: 每页数量
@@ -69,10 +47,10 @@ class FoodAPIService:
             "key": self.api_key,
             "location": location,
             "radius": radius,
-            "types": types or "050000",  # 默认餐饮服务
+            "types": "050000",  # 餐饮服务大类
             "page_num": page,
             "page_size": min(page_size, 25),
-            "show_fields": "business",  # 返回商业信息
+            "show_fields": "business",
         }
 
         if keywords:
@@ -99,7 +77,6 @@ class FoodAPIService:
         self,
         keywords: str,
         city: str = "北京",
-        types: Optional[str] = None,
         page: int = 1,
         page_size: int = 20
     ) -> dict:
@@ -109,7 +86,6 @@ class FoodAPIService:
         Args:
             keywords: 搜索关键词
             city: 城市名称
-            types: POI类型代码
             page: 页码
             page_size: 每页数量
 
@@ -121,7 +97,7 @@ class FoodAPIService:
             "keywords": keywords,
             "city": city,
             "citylimit": "true",
-            "types": types or "050000",
+            "types": "050000",  # 餐饮服务大类
             "page_num": page,
             "page_size": min(page_size, 25),
             "show_fields": "business",
@@ -236,12 +212,8 @@ class FoodAPIService:
             "area": poi.get("adname", ""),
         }
 
-    def get_type_code(self, cuisine: str) -> Optional[str]:
-        """根据菜系名称获取高德POI类型代码"""
-        return self.food_types.get(cuisine)
-
     def get_cuisines_by_taste(self, taste: str) -> list:
-        """根据口味获取推荐菜系"""
+        """根据口味获取推荐关键词"""
         return self.taste_keywords.get(taste, [])
 
     async def geocode(self, address: str, city: str = None) -> Optional[str]:
@@ -384,12 +356,12 @@ class FoodAPIService:
                     filtered.append(r)
         return filtered
 
-    async def _do_search(self, location: str, keywords: Optional[str], types: Optional[str], city: str) -> dict:
+    async def _do_search(self, location: str, keywords: Optional[str], city: str) -> dict:
         """执行搜索"""
         if location and location != "unknown":
-            return await self.search_nearby(location=location, keywords=keywords, types=types)
+            return await self.search_nearby(location=location, keywords=keywords)
         else:
-            return await self.search_by_keyword(keywords=keywords or "美食", city=city, types=types)
+            return await self.search_by_keyword(keywords=keywords or "美食", city=city)
 
     async def smart_search(
         self,
@@ -402,109 +374,32 @@ class FoodAPIService:
     ) -> dict:
         """
         智能搜索 - 综合多个条件搜索餐厅
-
-        关键词策略（优先级）：
-        1. 用户指定的 cuisine（如"川菜"）
-        2. 用户指定的 keywords
-        3. 根据 taste 推断的菜系
-
-        自动放宽条件策略：
-        1. 严格匹配：预算内 + 排除价格未知
-        2. 放宽预算：预算 * 1.5
-        3. 包含未知：包含价格未知的餐厅
-        4. 扩大范围：去掉口味/菜系限制
+        简化版：直接用关键词搜索，按预算过滤，不做复杂fallback
         """
-        # 关键词和类型策略
-        final_keywords = None
-        final_types = None
-
-        if cuisine:
-            final_keywords = cuisine
-            final_types = self.get_type_code(cuisine)
-        elif keywords:
-            final_keywords = keywords
-        elif taste:
+        # 确定搜索关键词
+        final_keywords = cuisine or keywords
+        if not final_keywords and taste:
             cuisines = self.get_cuisines_by_taste(taste)
             if cuisines:
                 final_keywords = cuisines[0]
-                final_types = self.get_type_code(cuisines[0])
+
+        if not final_keywords:
+            final_keywords = "美食"
 
         # 执行搜索
-        result = await self._do_search(location, final_keywords, final_types, city)
+        result = await self._do_search(location, final_keywords, city)
+        restaurants = result.get("restaurants", [])
 
-        # 如果有口味偏好但搜索结果少，尝试搜索其他相关菜系并合并
-        if taste and not cuisine and result.get("restaurants"):
-            cuisines = self.get_cuisines_by_taste(taste)
-            if len(cuisines) > 1 and len(result.get("restaurants", [])) < 10:
-                existing_ids = {r["id"] for r in result["restaurants"]}
-                for other_cuisine in cuisines[1:]:
-                    other_types = self.get_type_code(other_cuisine)
-                    other_result = await self._do_search(location, other_cuisine, other_types, city)
-                    for r in other_result.get("restaurants", []):
-                        if r["id"] not in existing_ids:
-                            result["restaurants"].append(r)
-                            existing_ids.add(r["id"])
-                result["count"] = len(result["restaurants"])
-
-        # 如果搜索本身无结果，尝试扩大范围
-        if not result.get("restaurants") and final_keywords:
-            broader_result = await self._do_search(location, "美食", "050000", city)
-            if broader_result.get("restaurants"):
-                broader_result["relaxed"] = "已扩大搜索范围（放宽口味/菜系限制）"
-                result = broader_result
-
-        if not result.get("restaurants"):
+        if not restaurants:
             return result
 
-        # 如果没有预算限制，直接返回
-        if not budget_max:
-            return result
+        # 如果有预算限制，过滤
+        if budget_max:
+            filtered = self._filter_by_budget(restaurants, budget_max, include_unknown=True)
+            if filtered:
+                result["restaurants"] = filtered
+                result["count"] = len(filtered)
 
-        all_restaurants = result["restaurants"]
-        existing_relaxed = result.get("relaxed")
-
-        # 策略1: 严格匹配
-        filtered = self._filter_by_budget(all_restaurants, budget_max, include_unknown=False)
-        if filtered:
-            result["restaurants"] = filtered
-            result["count"] = len(filtered)
-            return result
-
-        # 策略2: 放宽预算
-        relaxed_budget = int(budget_max * 1.5)
-        filtered = self._filter_by_budget(all_restaurants, relaxed_budget, include_unknown=False)
-        if filtered:
-            result["restaurants"] = filtered
-            result["count"] = len(filtered)
-            relaxed_msg = f"已放宽预算至{relaxed_budget}元"
-            result["relaxed"] = f"{existing_relaxed}，{relaxed_msg}" if existing_relaxed else relaxed_msg
-            return result
-
-        # 策略3: 包含价格未知
-        filtered = self._filter_by_budget(all_restaurants, budget_max, include_unknown=True)
-        if filtered:
-            result["restaurants"] = filtered
-            result["count"] = len(filtered)
-            relaxed_msg = "包含了部分价格未知的餐厅"
-            result["relaxed"] = f"{existing_relaxed}，{relaxed_msg}" if existing_relaxed else relaxed_msg
-            return result
-
-        # 策略4: 扩大搜索范围
-        if final_keywords:
-            broader_result = await self._do_search(location, "美食", "050000", city)
-            if broader_result.get("restaurants"):
-                filtered = self._filter_by_budget(broader_result["restaurants"], budget_max, include_unknown=True)
-                if filtered:
-                    broader_result["restaurants"] = filtered
-                    broader_result["count"] = len(filtered)
-                    broader_result["relaxed"] = "已扩大搜索范围（去除口味/菜系限制）"
-                    return broader_result
-
-        # 所有策略都失败，返回原始结果
-        result["restaurants"] = all_restaurants[:5]
-        result["count"] = len(result["restaurants"])
-        relaxed_msg = "未找到符合预算的餐厅，以下为附近热门餐厅参考"
-        result["relaxed"] = f"{existing_relaxed}，{relaxed_msg}" if existing_relaxed else relaxed_msg
         return result
 
 
