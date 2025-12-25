@@ -1,6 +1,6 @@
 """
-外卖/美食助手 A2A Agent
-接收主控Agent的结构化请求，执行skill并返回结果
+外卖/美食助手 A2A Agent - 简化版
+统一搜索接口，支持地点名、预算筛选、外卖筛选
 """
 
 import json
@@ -18,26 +18,36 @@ from food_api_service import food_api_service
 # ==================== Skill 实现 ====================
 
 class FoodAgentSkills:
-    """美食Agent技能 - 精简为3个核心技能"""
+    """美食Agent技能 - 统一搜索接口"""
 
     def __init__(self):
         self.api = food_api_service
-        self.default_city = "北京"
+        self.default_city = "南京"
 
     def _format_restaurant(self, r: dict, index: int = None) -> str:
         """格式化单个餐厅信息"""
         prefix = f"{index}. " if index else ""
-        lines = [
-            f"**{prefix}{r.get('name', '未知')}**",
-            f"   类型: {r.get('type', '未知')}",
-            f"   评分: {r.get('rating', '暂无')}",
-            f"   人均: {r.get('cost', '暂无')}元",
-            f"   地址: {r.get('address', '暂无')}",
-        ]
+        lines = [f"**{prefix}{r.get('name', '未知')}**"]
+
+        # 基本信息
+        info_parts = []
+        if r.get('type') and r.get('type') != '餐厅':
+            info_parts.append(r.get('type'))
+        if r.get('rating') and r.get('rating') != '暂无':
+            info_parts.append(f"评分:{r.get('rating')}")
+        if r.get('cost') and r.get('cost') != '暂无':
+            info_parts.append(f"人均:{r.get('cost')}元")
         if r.get('distance'):
-            lines.append(f"   距离: {r.get('distance')}")
+            info_parts.append(r.get('distance'))
+
+        if info_parts:
+            lines.append(f"   {' | '.join(info_parts)}")
+
+        lines.append(f"   {r.get('address', '暂无地址')}")
+
         if r.get('tel') and r.get('tel') != '暂无':
             lines.append(f"   电话: {r.get('tel')}")
+
         return "\n".join(lines)
 
     def _format_restaurant_list(self, restaurants: list, limit: int = 10) -> str:
@@ -47,177 +57,45 @@ class FoodAgentSkills:
             result.append(self._format_restaurant(r, i))
         return "\n\n".join(result)
 
-    def _format_detail(self, r: dict) -> str:
-        """格式化餐厅详情"""
-        lines = [
-            f"# {r.get('name', '未知')}",
-            "",
-            f"**类型**: {r.get('type', '未知')}",
-            f"**评分**: {r.get('rating', '暂无')}",
-            f"**人均**: {r.get('cost', '暂无')}元",
-            f"**地址**: {r.get('address', '暂无')}",
-            f"**电话**: {r.get('tel', '暂无')}",
-            f"**营业时间**: {r.get('business_hours', '暂无')}",
-        ]
-        if r.get('tag'):
-            lines.append(f"**特色**: {r.get('tag')}")
-        return "\n".join(lines)
-
-    async def recommend(self, params: dict) -> str:
-        """
-        推荐餐厅（统一入口）
-
-        支持参数组合：
-        - taste: 口味偏好（辣、清淡、鲜...）
-        - budget_max: 预算上限
-        - budget_min: 预算下限
-        - cuisine: 菜系/分类（川菜、火锅、日料...）
-        - location: 坐标
-        - address: 地址
-        - city: 城市
-        - ip: IP地址
-        """
-        taste = params.get("taste")
-        budget_max = params.get("budget_max")
-        cuisine = params.get("cuisine") or params.get("category")
-
-        # 解析位置
-        location, city = await self.api.resolve_location(
-            location=params.get("location"),
-            address=params.get("address"),
-            city=params.get("city"),
-            ip=params.get("ip")
-        )
-
-        # 调用智能搜索
-        result = await self.api.smart_search(
-            location=location,
-            taste=taste,
-            cuisine=cuisine,
-            budget_max=int(budget_max) if budget_max else None,
-            city=city
-        )
-
-        restaurants = result.get("restaurants", [])
-
-        if not restaurants:
-            return self._no_result_message(taste=taste, budget=budget_max, cuisine=cuisine)
-
-        # 构建响应
-        header = self._build_header(params, len(restaurants))
-        body = self._format_restaurant_list(restaurants)
-
-        response = f"{header}\n\n{body}"
-
-        # 如果放宽了条件，添加提示
-        if result.get("relaxed"):
-            response = f"提示: {result['relaxed']}\n\n{response}"
-
-        return response
-
-    def _build_header(self, params: dict, count: int) -> str:
-        """构建响应头"""
-        conditions = []
-        if params.get("taste"):
-            conditions.append(f"口味:{params['taste']}")
-        if params.get("budget_max"):
-            conditions.append(f"预算:{params['budget_max']}元内")
-        cuisine = params.get("cuisine") or params.get("category")
-        if cuisine:
-            conditions.append(f"菜系:{cuisine}")
-
-        if conditions:
-            return f"为您找到 {count} 家餐厅 ({', '.join(conditions)})"
-        return f"为您找到 {count} 家餐厅"
-
     async def search(self, params: dict) -> str:
         """
-        搜索餐厅
+        统一搜索接口
 
         params:
-        - keyword: 搜索关键词（必填）
+        - query: 搜索关键词（菜系、餐厅名等）【必填】
+        - location: 坐标，高德格式"经度,纬度"
+        - location_name: 地点名称（如"新街口"），会自动转坐标
         - city: 城市
-        - location: 坐标（可选，有则搜附近）
+        - budget_max: 预算上限（严格筛选）
+        - delivery_only: 是否只看外卖（true/false）
         """
-        keyword = params.get("keyword")
-        if not keyword:
-            return "请提供搜索关键词"
+        query = params.get("query") or params.get("keyword") or params.get("cuisine")
+        if not query:
+            return "请输入搜索内容（如：火锅、海底捞、日料...）"
 
-        city = params.get("city", self.default_city)
-        location = params.get("location")
-
-        # 如果有坐标，使用周边搜索
-        if location and location != "unknown":
-            result = await self.api.search_nearby(
-                location=location,
-                query=keyword,
-                radius=3000
-            )
-        else:
-            result = await self.api.search_by_keyword(
-                keywords=keyword,
-                city=city
-            )
+        # 调用统一搜索
+        result = await self.api.unified_search(
+            query=query,
+            location=params.get("location"),
+            location_name=params.get("location_name"),
+            city=params.get("city", self.default_city),
+            budget_max=int(params["budget_max"]) if params.get("budget_max") else None,
+            delivery_only=bool(params.get("delivery_only")),
+            radius=int(params.get("radius", 3000))
+        )
 
         restaurants = result.get("restaurants", [])
+        search_info = result.get("search_info", "")
 
         if not restaurants:
-            return f"未找到与「{keyword}」相关的餐厅，请尝试其他关键词。"
+            return f"未找到结果（{search_info}）\n\n建议：\n- 尝试其他关键词\n- 放宽预算限制\n- 扩大搜索范围"
 
-        if location and location != "unknown":
-            header = f"在您附近搜索「{keyword}」找到 {len(restaurants)} 家餐厅"
-        else:
-            header = f"在{city}搜索「{keyword}」找到 {len(restaurants)} 家餐厅"
+        header = f"搜索「{query}」找到 {len(restaurants)} 家餐厅"
+        if search_info:
+            header = f"{search_info}\n{header}"
 
         body = self._format_restaurant_list(restaurants)
         return f"{header}\n\n{body}"
-
-    async def detail(self, params: dict) -> str:
-        """
-        获取餐厅详情
-
-        params:
-        - restaurant_name: 餐厅名称
-        - restaurant_id: POI ID（可选，优先使用）
-        - city: 城市
-        """
-        restaurant_id = params.get("restaurant_id")
-        restaurant_name = params.get("restaurant_name")
-        city = params.get("city", self.default_city)
-
-        # 如果有ID直接查详情
-        if restaurant_id:
-            result = await self.api.get_restaurant_detail(restaurant_id)
-            if "error" not in result:
-                return self._format_detail(result)
-
-        # 否则先搜索再取第一个
-        if restaurant_name:
-            result = await self.api.search_by_keyword(
-                keywords=restaurant_name,
-                city=city
-            )
-            restaurants = result.get("restaurants", [])
-            if restaurants:
-                return self._format_detail(restaurants[0])
-
-        return "未找到该餐厅信息，请检查餐厅名称是否正确。"
-
-    def _no_result_message(self, taste=None, budget=None, cuisine=None) -> str:
-        """无结果时的提示信息"""
-        conditions = []
-        if taste:
-            conditions.append(f"口味:{taste}")
-        if budget:
-            conditions.append(f"预算:{budget}元内")
-        if cuisine:
-            conditions.append(f"菜系:{cuisine}")
-
-        msg = "未找到符合条件的餐厅"
-        if conditions:
-            msg += f" ({', '.join(conditions)})"
-        msg += "，建议放宽条件重试。"
-        return msg
 
 
 # ==================== A2A Agent ====================
@@ -229,11 +107,12 @@ class FoodDeliveryAgent:
         self.skills = FoodAgentSkills()
         self.tasks = {}
 
-        # 精简为3个核心技能
+        # 简化为单一搜索技能
         self.skill_handlers = {
-            "recommend": self.skills.recommend,
             "search": self.skills.search,
-            "detail": self.skills.detail,
+            # 兼容旧接口
+            "recommend": self.skills.search,
+            "detail": self.skills.search,
         }
 
     def load_agent_card(self) -> dict:
@@ -247,26 +126,29 @@ class FoodDeliveryAgent:
         handler = self.skill_handlers.get(skill_id)
 
         if not handler:
-            result_text = f"未知的技能: {skill_id}。可用技能: {list(self.skill_handlers.keys())}"
-        else:
-            try:
-                result_text = await handler(params)
-            except Exception as e:
-                result_text = f"执行出错: {str(e)}"
-
-        task = {
-            "id": task_id,
-            "status": {
-                "state": "completed",
-                "timestamp": datetime.now().isoformat()
-            },
-            "result": {
-                "type": "text",
-                "text": result_text
+            return {
+                "id": task_id,
+                "status": "failed",
+                "error": f"未知技能: {skill_id}，支持的技能: search"
             }
-        }
-        self.tasks[task_id] = task
-        return task
+
+        try:
+            result = await handler(params)
+            self.tasks[task_id] = {
+                "id": task_id,
+                "status": "completed",
+                "result": {"type": "text", "text": result},
+                "completed_at": datetime.now().isoformat()
+            }
+            return self.tasks[task_id]
+
+        except Exception as e:
+            self.tasks[task_id] = {
+                "id": task_id,
+                "status": "failed",
+                "error": str(e)
+            }
+            return self.tasks[task_id]
 
 
 # ==================== FastAPI ====================
@@ -277,48 +159,25 @@ agent = FoodDeliveryAgent()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("=" * 50)
-    print("外卖助手Agent 启动 (百度地图版)")
-    print(f"Agent Card: http://localhost:{config.AGENT_PORT}/.well-known/agent-card.json")
-    print(f"A2A Endpoint: http://localhost:{config.AGENT_PORT}/a2a")
-    print("Skills: recommend, search, detail")
+    print("美食助手Agent 启动 (百度地图版 v3.0)")
+    print(f"API: http://localhost:{config.AGENT_PORT}/a2a")
+    print("功能: 统一搜索（支持地点名、预算、外卖筛选）")
     print("=" * 50)
     yield
-    print("外卖助手Agent 关闭")
+    print("美食助手Agent 关闭")
 
 
-app = FastAPI(
-    title="Food Delivery Assistant Agent",
-    lifespan=lifespan
-)
+app = FastAPI(title="美食助手Agent", lifespan=lifespan)
 
 
 @app.get("/.well-known/agent-card.json")
 async def get_agent_card():
-    """返回Agent Card"""
-    return JSONResponse(content=agent.load_agent_card())
+    return agent.load_agent_card()
 
 
 @app.post("/a2a")
 async def handle_a2a(request: Request):
-    """
-    处理A2A JSON-RPC请求
-
-    请求格式:
-    {
-        "jsonrpc": "2.0",
-        "id": "request-id",
-        "method": "tasks/send",
-        "params": {
-            "id": "task-id",
-            "skill_id": "recommend",
-            "params": {
-                "taste": "辣",
-                "budget_max": 80,
-                "cuisine": "川菜"
-            }
-        }
-    }
-    """
+    """处理A2A JSON-RPC请求"""
     body = await request.json()
 
     method = body.get("method")
@@ -366,7 +225,7 @@ async def handle_a2a(request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "api": "baidu"}
+    return {"status": "ok", "api": "baidu", "version": "3.0"}
 
 
 if __name__ == "__main__":

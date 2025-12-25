@@ -4,7 +4,7 @@
 """
 
 import httpx
-from typing import Optional
+from typing import Optional, Tuple
 from config import config
 
 
@@ -14,33 +14,6 @@ class FoodAPIService:
     def __init__(self):
         self.ak = config.BAIDU_MAP_AK
         self.base_url = "https://api.map.baidu.com"
-
-        # 美食分类标签
-        self.food_types = {
-            "中餐": "中餐厅",
-            "川菜": "川菜",
-            "粤菜": "粤菜",
-            "湘菜": "湘菜",
-            "东北菜": "东北菜",
-            "火锅": "火锅",
-            "海鲜": "海鲜",
-            "西餐": "西餐",
-            "日料": "日本料理",
-            "韩餐": "韩国料理",
-            "快餐": "快餐",
-            "咖啡厅": "咖啡厅",
-            "茶馆": "茶馆",
-            "甜点": "甜品店",
-            "小吃": "小吃",
-            "烧烤": "烧烤",
-        }
-
-        # 口味关键词映射
-        self.taste_keywords = {
-            "清淡": ["粤菜", "日本料理", "素食"],
-            "辣": ["川菜", "湘菜", "火锅"],
-            "鲜": ["海鲜", "日本料理", "粤菜"],
-        }
 
     def swap_coord_order(self, amap_location: str) -> str:
         """
@@ -54,6 +27,42 @@ class FoodAPIService:
         except Exception:
             pass
         return amap_location
+
+    async def geocode(self, address: str, city: str = "") -> Optional[str]:
+        """
+        地理编码：地址 -> 坐标
+
+        Args:
+            address: 地址，如"新街口"、"南京大学"
+            city: 城市，提高精度
+
+        Returns:
+            坐标字符串 "纬度,经度" (百度格式)，失败返回None
+        """
+        params = {
+            "ak": self.ak,
+            "address": address,
+            "output": "json",
+        }
+        if city:
+            params["city"] = city
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{self.base_url}/geocoding/v3/",
+                    params=params,
+                    timeout=10.0
+                )
+                data = response.json()
+
+                if data.get("status") == 0 and data.get("result"):
+                    loc = data["result"]["location"]
+                    return f"{loc['lat']},{loc['lng']}"
+            except Exception as e:
+                print(f"地理编码失败: {e}")
+
+        return None
 
     async def search_nearby(
         self,
@@ -274,146 +283,10 @@ class FoodAPIService:
             "area": poi.get("area", ""),
         }
 
-    def get_tag(self, cuisine: str) -> Optional[str]:
-        """根据菜系名称获取百度地图标签"""
-        return self.food_types.get(cuisine)
-
-    def get_cuisines_by_taste(self, taste: str) -> list:
-        """根据口味获取推荐菜系"""
-        return self.taste_keywords.get(taste, [])
-
-    async def geocode(self, address: str, city: str = None) -> Optional[str]:
+    def _filter_by_budget(self, restaurants: list, budget_max: int) -> list:
         """
-        地理编码 - 将地址转换为坐标
-
-        Args:
-            address: 地址字符串
-            city: 城市名称
-
-        Returns:
-            坐标字符串 "纬度,经度"（百度格式），失败返回None
+        按预算严格过滤餐厅（不包含价格未知的）
         """
-        params = {
-            "ak": self.ak,
-            "address": address,
-            "output": "json",
-        }
-        if city:
-            params["city"] = city
-
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/geocoding/v3/",
-                    params=params,
-                    timeout=10.0
-                )
-                data = response.json()
-
-                if data.get("status") == 0 and data.get("result"):
-                    location = data["result"].get("location", {})
-                    lat = location.get("lat")
-                    lng = location.get("lng")
-                    if lat and lng:
-                        return f"{lat},{lng}"
-                return None
-
-            except Exception:
-                return None
-
-    async def ip_locate(self, ip: str = None) -> dict:
-        """
-        IP定位 - 根据IP地址获取位置信息
-
-        Args:
-            ip: IP地址，不传则使用请求方IP
-
-        Returns:
-            {
-                "location": "纬度,经度" 或 None,
-                "city": "城市名称",
-                "province": "省份"
-            }
-        """
-        params = {
-            "ak": self.ak,
-            "coor": "bd09ll",
-        }
-        if ip:
-            params["ip"] = ip
-
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/location/ip",
-                    params=params,
-                    timeout=10.0
-                )
-                data = response.json()
-
-                if data.get("status") == 0:
-                    content = data.get("content", {})
-                    address_detail = content.get("address_detail", {})
-                    point = content.get("point", {})
-
-                    location = None
-                    if point.get("x") and point.get("y"):
-                        location = f"{point['y']},{point['x']}"
-
-                    return {
-                        "location": location,
-                        "city": address_detail.get("city", ""),
-                        "province": address_detail.get("province", ""),
-                    }
-
-                return {"error": data.get("message", "IP定位失败")}
-
-            except Exception as e:
-                return {"error": str(e)}
-
-    async def resolve_location(
-        self,
-        location: str = None,
-        address: str = None,
-        city: str = None,
-        ip: str = None
-    ) -> tuple[str, str]:
-        """
-        解析位置 - 优先使用坐标，其次解析地址，最后IP定位
-
-        Returns:
-            (坐标字符串, 城市名称)
-            - 有精确位置时返回 ("39.xx,116.xx", "北京")
-            - 仅有城市级别时返回 ("unknown", "北京")
-        """
-        default_city = "北京"
-
-        # 已有坐标
-        if location and "," in location and location != "unknown":
-            return location, city or default_city
-
-        # 解析地址
-        if address:
-            resolved = await self.geocode(address, city)
-            if resolved:
-                return resolved, city or default_city
-
-        # IP定位
-        ip_result = await self.ip_locate(ip)
-
-        if ip_result.get("city"):
-            location = ip_result.get("location")
-            if location:
-                return location, ip_result["city"]
-            return "unknown", ip_result["city"]
-
-        if city:
-            return "unknown", city
-
-        return "unknown", default_city
-
-    def _filter_by_budget(self, restaurants: list, budget_max: int, include_unknown: bool = True) -> list:
-        """按预算过滤餐厅"""
         filtered = []
         for r in restaurants:
             price = r.get("cost")
@@ -423,131 +296,99 @@ class FoodAPIService:
                     if price_num <= budget_max:
                         filtered.append(r)
                 except (ValueError, TypeError):
-                    if include_unknown:
-                        filtered.append(r)
-            else:
-                if include_unknown:
-                    filtered.append(r)
+                    pass  # 解析失败的不包含
         return filtered
 
-    async def _do_search(self, location: str, query: Optional[str], city: str) -> dict:
-        """执行搜索"""
-        if location and location != "unknown":
-            return await self.search_nearby(location=location, query=query)
-        else:
-            return await self.search_by_keyword(keywords=query or "美食", city=city)
-
-    async def smart_search(
+    async def unified_search(
         self,
-        location: str,
-        taste: Optional[str] = None,
-        cuisine: Optional[str] = None,
+        query: str,
+        location: Optional[str] = None,
+        location_name: Optional[str] = None,
+        city: str = "北京",
         budget_max: Optional[int] = None,
-        keywords: Optional[str] = None,
-        city: str = "北京"
+        delivery_only: bool = False,
+        radius: int = 3000
     ) -> dict:
         """
-        智能搜索 - 综合多个条件搜索餐厅
+        统一搜索接口
 
-        关键词策略（优先级）：
-        1. 用户指定的 cuisine（如"川菜"）
-        2. 用户指定的 keywords
-        3. 根据 taste 推断的菜系（分别搜索后合并）
+        Args:
+            query: 搜索关键词（菜系、餐厅名等）
+            location: 坐标，高德格式"经度,纬度"
+            location_name: 地点名称（如"新街口"），会自动转坐标
+            city: 城市
+            budget_max: 预算上限（严格筛选，不自动放宽）
+            delivery_only: 是否只看外卖
+            radius: 搜索半径（米）
 
-        自动放宽条件策略：
-        1. 严格匹配：预算内 + 排除价格未知
-        2. 放宽预算：预算 * 1.5
-        3. 包含未知：包含价格未知的餐厅
-        4. 扩大范围：去掉口味/菜系限制
+        Returns:
+            {
+                "restaurants": [...],
+                "count": int,
+                "search_info": "搜索信息描述"
+            }
         """
-        # 关键词策略
-        final_query = None
+        search_info_parts = []
 
-        if cuisine:
-            final_query = self.get_tag(cuisine) or cuisine
-        elif keywords:
-            final_query = keywords
-        elif taste:
-            cuisines = self.get_cuisines_by_taste(taste)
-            if cuisines:
-                final_query = cuisines[0]
+        # 1. 确定搜索坐标
+        final_location = None
 
-        # 执行搜索
-        result = await self._do_search(location, final_query, city)
+        # 优先使用地点名称解析坐标
+        if location_name:
+            geocoded = await self.geocode(location_name, city)
+            if geocoded:
+                # geocode返回的已经是百度格式(纬度,经度)，需要转回高德格式给search_nearby处理
+                parts = geocoded.split(",")
+                final_location = f"{parts[1]},{parts[0]}"  # 转为经度,纬度
+                search_info_parts.append(f"在「{location_name}」附近")
+            else:
+                search_info_parts.append(f"无法解析「{location_name}」，使用城市搜索")
 
-        # 如果有口味偏好但搜索结果少，尝试搜索其他相关菜系并合并
-        if taste and not cuisine and result.get("restaurants"):
-            cuisines = self.get_cuisines_by_taste(taste)
-            if len(cuisines) > 1 and len(result.get("restaurants", [])) < 10:
-                existing_ids = {r["id"] for r in result["restaurants"]}
-                for other_cuisine in cuisines[1:]:
-                    other_result = await self._do_search(location, other_cuisine, city)
-                    for r in other_result.get("restaurants", []):
-                        if r["id"] not in existing_ids:
-                            result["restaurants"].append(r)
-                            existing_ids.add(r["id"])
-                result["count"] = len(result["restaurants"])
+        # 其次使用传入的坐标（高德格式：经度,纬度）
+        if not final_location and location and location != "unknown":
+            final_location = location  # 直接传给search_nearby，由它来转换
+            search_info_parts.append("在当前位置附近")
 
-        # 如果搜索本身无结果，尝试扩大范围
-        if not result.get("restaurants") and final_query:
-            broader_result = await self._do_search(location, "美食", city)
-            if broader_result.get("restaurants"):
-                broader_result["relaxed"] = "已扩大搜索范围（放宽口味/菜系限制）"
-                result = broader_result
+        # 2. 构建搜索关键词
+        search_query = query
+        if delivery_only:
+            search_query = f"{query} 外卖"
+            search_info_parts.append("只看外卖")
 
-        if not result.get("restaurants"):
-            return result
+        # 3. 执行搜索
+        if final_location:
+            result = await self.search_nearby(
+                location=final_location,
+                query=search_query,
+                radius=radius
+            )
+        else:
+            result = await self.search_by_keyword(
+                keywords=search_query,
+                city=city
+            )
+            search_info_parts.append(f"在{city}搜索")
 
-        # 如果没有预算限制，直接返回
-        if not budget_max:
-            return result
+        restaurants = result.get("restaurants", [])
 
-        all_restaurants = result["restaurants"]
-        existing_relaxed = result.get("relaxed")
+        # 4. 预算筛选（严格，不自动放宽）
+        if budget_max and restaurants:
+            original_count = len(restaurants)
+            restaurants = self._filter_by_budget(restaurants, budget_max)
+            if len(restaurants) < original_count:
+                search_info_parts.append(f"人均{budget_max}元内")
+                if not restaurants:
+                    search_info_parts.append("（无符合预算的结果）")
 
-        # 策略1: 严格匹配
-        filtered = self._filter_by_budget(all_restaurants, budget_max, include_unknown=False)
-        if filtered:
-            result["restaurants"] = filtered
-            result["count"] = len(filtered)
-            return result
+        # 5. 构建返回结果
+        search_info = "，".join(search_info_parts) if search_info_parts else f"搜索「{query}」"
 
-        # 策略2: 放宽预算
-        relaxed_budget = int(budget_max * 1.5)
-        filtered = self._filter_by_budget(all_restaurants, relaxed_budget, include_unknown=False)
-        if filtered:
-            result["restaurants"] = filtered
-            result["count"] = len(filtered)
-            relaxed_msg = f"已放宽预算至{relaxed_budget}元"
-            result["relaxed"] = f"{existing_relaxed}，{relaxed_msg}" if existing_relaxed else relaxed_msg
-            return result
-
-        # 策略3: 包含价格未知
-        filtered = self._filter_by_budget(all_restaurants, budget_max, include_unknown=True)
-        if filtered:
-            result["restaurants"] = filtered
-            result["count"] = len(filtered)
-            relaxed_msg = "包含了部分价格未知的餐厅"
-            result["relaxed"] = f"{existing_relaxed}，{relaxed_msg}" if existing_relaxed else relaxed_msg
-            return result
-
-        # 策略4: 扩大搜索范围
-        if final_query:
-            broader_result = await self._do_search(location, "美食", city)
-            if broader_result.get("restaurants"):
-                filtered = self._filter_by_budget(broader_result["restaurants"], budget_max, include_unknown=True)
-                if filtered:
-                    broader_result["restaurants"] = filtered
-                    broader_result["count"] = len(filtered)
-                    broader_result["relaxed"] = "已扩大搜索范围（去除口味/菜系限制）"
-                    return broader_result
-
-        # 所有策略都失败，返回原始结果
-        result["restaurants"] = all_restaurants[:5]
-        result["count"] = len(result["restaurants"])
-        relaxed_msg = "未找到符合预算的餐厅，以下为附近热门餐厅参考"
-        result["relaxed"] = f"{existing_relaxed}，{relaxed_msg}" if existing_relaxed else relaxed_msg
-        return result
+        return {
+            "restaurants": restaurants,
+            "count": len(restaurants),
+            "query": query,
+            "search_info": search_info
+        }
 
 
 # 单例

@@ -1,11 +1,11 @@
 {
   "protocolVersion": "1.0",
-  "name": "Food Delivery Assistant Agent",
-  "description": "智能外卖/美食助手，提供个性化餐厅推荐、搜索、详情查询服务，集成高德地图真实数据",
-  "version": "2.0.0",
+  "name": "饭来！",
+  "description": "智能美食搜索助手，支持关键词搜索、地点定位、预算筛选，基于百度地图POI数据",
+  "version": "3.0.0",
   "provider": {
-    "url": "http://localhost:8080/a2a",
-    "organization": "Food Agent Demo"
+    "url": "http://47.97.74.119:8080/a2a",
+    "organization": "饭来美食助手"
   },
   "capabilities": {
     "streaming": false,
@@ -15,49 +15,50 @@
   "defaultOutputModes": ["text"],
   "skills": [
     {
-      "id": "recommend",
-      "name": "推荐餐厅",
-      "description": "根据口味、预算、菜系等条件推荐餐厅。支持任意条件组合：仅口味、仅预算、仅菜系、或多条件组合",
-      "tags": ["food", "recommendation"],
-      "inputModes": ["text"],
-      "outputModes": ["text"],
-      "examples": [
-        "推荐清淡口味、50元以内的餐厅",
-        "想吃川菜，预算80元",
-        "推荐辣味餐厅",
-        "30元以内有什么推荐",
-        "看看附近的火锅店"
-      ]
-    },
-    {
       "id": "search",
-      "name": "搜索餐厅",
-      "description": "根据关键词搜索特定餐厅",
-      "tags": ["food", "search"],
+      "name": "美食搜索",
+      "description": "统一搜索接口，支持关键词、地点名称、预算筛选",
+      "tags": ["food", "search", "recommendation"],
       "inputModes": ["text"],
       "outputModes": ["text"],
+      "parameters": {
+        "query": {
+          "type": "string",
+          "required": true,
+          "description": "搜索关键词（菜系、餐厅名等）"
+        },
+        "location": {
+          "type": "string",
+          "required": false,
+          "description": "坐标，高德格式：经度,纬度"
+        },
+        "location_name": {
+          "type": "string",
+          "required": false,
+          "description": "地点名称（如新街口、南京大学），会自动转坐标"
+        },
+        "city": {
+          "type": "string",
+          "required": false,
+          "description": "城市名称，默认南京"
+        },
+        "budget_max": {
+          "type": "number",
+          "required": false,
+          "description": "预算上限（元）"
+        }
+      },
       "examples": [
-        "搜索海底捞",
-        "找附近的肯德基",
-        "星巴克在哪"
-      ]
-    },
-    {
-      "id": "detail",
-      "name": "餐厅详情",
-      "description": "获取指定餐厅的详细信息（地址、电话、营业时间、人均消费等）",
-      "tags": ["food", "detail"],
-      "inputModes": ["text"],
-      "outputModes": ["text"],
-      "examples": [
-        "海底捞的详细信息",
-        "这家店的营业时间和电话"
+        "搜索火锅",
+        "新街口附近的日料",
+        "南京大学周边50元以内的快餐",
+        "找海底捞"
       ]
     }
   ],
   "supportedInterfaces": [
     {
-      "url": "http://localhost:8080/a2a",
+      "url": "http://47.97.74.119:8080/a2a",
       "protocolBinding": "http"
     }
   ]
